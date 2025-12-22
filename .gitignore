@@ -1,0 +1,17 @@
+# Media files
+*.mov
+*.gif
+*.pdf
+
+# Node modules
+node_modules/
+
+# Data files
+pdf/data/
+
+# OS files
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*

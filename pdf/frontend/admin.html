@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Assembly Dashboard - Admin</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: #f3f4f6;
+      color: #111827;
+      line-height: 1.6;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    header {
+      background-color: #111827;
+      color: white;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+
+    header h1 {
+      font-size: 24px;
+      margin-bottom: 8px;
+    }
+
+    header p {
+      color: #9ca3af;
+      font-size: 14px;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      background: white;
+      padding: 24px;
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+
+    .stat-card h3 {
+      font-size: 12px;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .stat-card .value {
+      font-size: 32px;
+      font-weight: 700;
+      color: #111827;
+    }
+
+    .sessions-table {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+    }
+
+    .table-header {
+      padding: 16px 24px;
+      border-bottom: 1px solid #e5e7eb;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .table-header h2 {
+      font-size: 18px;
+    }
+
+    .refresh-btn {
+      background-color: #2563eb;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .refresh-btn:hover {
+      background-color: #1d4ed8;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 12px 16px;
+      text-align: left;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    th {
+      background-color: #f9fafb;
+      font-size: 12px;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    td {
+      font-size: 14px;
+    }
+
+    tr:hover {
+      background-color: #f9fafb;
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .status-completed {
+      background-color: #dcfce7;
+      color: #166534;
+    }
+
+    .status-in_progress {
+      background-color: #fef3c7;
+      color: #92400e;
+    }
+
+    .view-btn {
+      background-color: #f3f4f6;
+      border: 1px solid #d1d5db;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    .view-btn:hover {
+      background-color: #e5e7eb;
+    }
+
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .modal.active {
+      display: flex;
+    }
+
+    .modal-content {
+      background: white;
+      padding: 32px;
+      border-radius: 12px;
+      max-width: 900px;
+      width: 90%;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+
+    .close-btn {
+      background: none;
+      border: none;
+      font-size: 24px;
+      cursor: pointer;
+      color: #6b7280;
+    }
+
+    .detail-section {
+      margin-bottom: 24px;
+    }
+
+    .detail-section h3 {
+      font-size: 16px;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+
+    .detail-item {
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .detail-item .label {
+      color: #6b7280;
+    }
+
+    .detail-item .value {
+      font-weight: 600;
+    }
+
+    .page-times-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+      gap: 8px;
+    }
+
+    .page-time-card {
+      background-color: #f9fafb;
+      padding: 12px;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .page-time-card .page-num {
+      font-size: 12px;
+      color: #6b7280;
+    }
+
+    .page-time-card .time {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .nav-log {
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    .nav-log table {
+      font-size: 13px;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 48px;
+      color: #6b7280;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container">
+      <h1>Assembly Dashboard</h1>
+      <p>Monitor assembly sessions and track operator performance</p>
+    </div>
+  </header>
+
+  <div class="container">
+    <!-- Stats Grid -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <h3>Total Sessions</h3>
+        <div id="total-sessions" class="value">0</div>
+      </div>
+      <div class="stat-card">
+        <h3>Completed</h3>
+        <div id="completed-sessions" class="value">0</div>
+      </div>
+      <div class="stat-card">
+        <h3>In Progress</h3>
+        <div id="in-progress-sessions" class="value">0</div>
+      </div>
+      <div class="stat-card">
+        <h3>Avg. Assembly Time</h3>
+        <div id="avg-time" class="value">--:--</div>
+      </div>
+    </div>
+
+    <!-- Sessions Table -->
+    <div class="sessions-table">
+      <div class="table-header">
+        <h2>Assembly Sessions</h2>
+        <button class="refresh-btn" onclick="loadSessions()">Refresh</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Serial Number</th>
+            <th>Start Time</th>
+            <th>End Time</th>
+            <th>Duration</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="sessions-body">
+          <tr>
+            <td colspan="6" class="empty-state">Loading sessions...</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Session Detail Modal -->
+  <div id="session-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Session Details</h2>
+        <button class="close-btn" onclick="closeModal()">&times;</button>
+      </div>
+      <div id="modal-body">
+        <!-- Session details will be populated here -->
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let sessions = [];
+
+    async function loadSessions() {
+      try {
+        const response = await fetch('/api/sessions');
+        sessions = await response.json();
+        renderSessions();
+        updateStats();
+      } catch (error) {
+        console.error('Error loading sessions:', error);
+      }
+    }
+
+    function renderSessions() {
+      const tbody = document.getElementById('sessions-body');
+
+      if (sessions.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No assembly sessions yet</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = sessions.map(session => `
+        <tr>
+          <td><strong>${session.serial_number}</strong></td>
+          <td>${formatDateTime(session.start_time)}</td>
+          <td>${session.end_time ? formatDateTime(session.end_time) : '-'}</td>
+          <td>${session.total_duration_seconds ? formatDuration(session.total_duration_seconds) : '-'}</td>
+          <td><span class="status-badge status-${session.status}">${session.status.replace('_', ' ')}</span></td>
+          <td><button class="view-btn" onclick="viewSession('${session.session_id}')">View Details</button></td>
+        </tr>
+      `).join('');
+    }
+
+    function updateStats() {
+      const total = sessions.length;
+      const completed = sessions.filter(s => s.status === 'completed').length;
+      const inProgress = sessions.filter(s => s.status === 'in_progress').length;
+
+      document.getElementById('total-sessions').textContent = total;
+      document.getElementById('completed-sessions').textContent = completed;
+      document.getElementById('in-progress-sessions').textContent = inProgress;
+
+      // Calculate average time
+      const completedSessions = sessions.filter(s => s.total_duration_seconds);
+      if (completedSessions.length > 0) {
+        const avgSeconds = completedSessions.reduce((sum, s) => sum + s.total_duration_seconds, 0) / completedSessions.length;
+        document.getElementById('avg-time').textContent = formatDuration(avgSeconds);
+      }
+    }
+
+    async function viewSession(sessionId) {
+      try {
+        const response = await fetch(`/api/session/${sessionId}/summary`);
+        const summary = await response.json();
+        renderSessionDetail(summary);
+        document.getElementById('session-modal').classList.add('active');
+      } catch (error) {
+        console.error('Error loading session details:', error);
+      }
+    }
+
+    function renderSessionDetail(summary) {
+      const { session, pageVisits, navigationLog, pageTimeSummary } = summary;
+
+      const modalBody = document.getElementById('modal-body');
+      modalBody.innerHTML = `
+        <div class="detail-section">
+          <h3>Session Information</h3>
+          <div class="detail-grid">
+            <div class="detail-item">
+              <span class="label">Serial Number:</span>
+              <span class="value">${session.serial_number}</span>
+            </div>
+            <div class="detail-item">
+              <span class="label">Status:</span>
+              <span class="value">${session.status}</span>
+            </div>
+            <div class="detail-item">
+              <span class="label">Start Time:</span>
+              <span class="value">${formatDateTime(session.start_time)}</span>
+            </div>
+            <div class="detail-item">
+              <span class="label">End Time:</span>
+              <span class="value">${session.end_time ? formatDateTime(session.end_time) : '-'}</span>
+            </div>
+            <div class="detail-item">
+              <span class="label">Total Duration:</span>
+              <span class="value">${session.total_duration_seconds ? formatDuration(session.total_duration_seconds) : '-'}</span>
+            </div>
+            <div class="detail-item">
+              <span class="label">Total Pages:</span>
+              <span class="value">${session.total_pages}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="detail-section">
+          <h3>Time Per Page</h3>
+          <div class="page-times-grid">
+            ${Array.from({ length: session.total_pages }, (_, i) => {
+              const pageData = pageTimeSummary.find(p => p.page_number === i + 1);
+              const time = pageData ? pageData.total_time_seconds : 0;
+              const visits = pageData ? pageData.visit_count : 0;
+              return `
+                <div class="page-time-card">
+                  <div class="page-num">Page ${i + 1}</div>
+                  <div class="time">${formatDuration(time)}</div>
+                  <div class="page-num">${visits} visit(s)</div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+
+        <div class="detail-section">
+          <h3>Navigation Log</h3>
+          <div class="nav-log">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>From</th>
+                  <th>To</th>
+                  <th>Action</th>
+                  <th>Time on Page</th>
+                  <th>Cumulative Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${navigationLog.map((nav, index) => `
+                  <tr>
+                    <td>${index + 1}</td>
+                    <td>${nav.from_page || '-'}</td>
+                    <td>${nav.to_page || '-'}</td>
+                    <td>${nav.action}</td>
+                    <td>${formatDuration(nav.time_on_previous_page_seconds || 0)}</td>
+                    <td>${formatDuration(nav.cumulative_time_seconds || 0)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    function closeModal() {
+      document.getElementById('session-modal').classList.remove('active');
+    }
+
+    function formatDateTime(dateStr) {
+      if (!dateStr) return '-';
+      const date = new Date(dateStr + 'Z'); // Assume UTC
+      return date.toLocaleString();
+    }
+
+    function formatDuration(seconds) {
+      if (!seconds || seconds < 0) return '00:00';
+      const hrs = Math.floor(seconds / 3600);
+      const mins = Math.floor((seconds % 3600) / 60);
+      const secs = Math.floor(seconds % 60);
+
+      if (hrs > 0) {
+        return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+      }
+      return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    // Close modal on click outside
+    document.getElementById('session-modal').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) {
+        closeModal();
+      }
+    });
+
+    // Close modal on Escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeModal();
+      }
+    });
+
+    // Load sessions on page load
+    loadSessions();
+
+    // Auto-refresh every 30 seconds
+    setInterval(loadSessions, 30000);
+  </script>
+</body>
+</html>
