@@ -2,6 +2,8 @@
 class AssemblyViewer {
   constructor() {
     // State
+    this.stations = [];
+    this.selectedStation = null;
     this.sessionId = null;
     this.serialNumber = null;
     this.currentPage = 1;
@@ -17,7 +19,7 @@ class AssemblyViewer {
 
     // PDF.js
     this.pdfDoc = null;
-    this.pdfPath = '/pdf/[M-2007091] Left Hip Mechanical Assembly (DELTA).pdf';
+    this.pdfPath = null;
 
     // Timers
     this.pageTimerInterval = null;
@@ -25,15 +27,23 @@ class AssemblyViewer {
 
     // DOM Elements
     this.screens = {
+      station: document.getElementById('station-screen'),
       sn: document.getElementById('sn-screen'),
       viewer: document.getElementById('viewer-screen'),
       complete: document.getElementById('complete-screen')
     };
 
     this.elements = {
+      stationList: document.getElementById('station-list'),
+      selectedStationName: document.getElementById('selected-station-name'),
+      documentTitle: document.getElementById('document-title'),
+      stationIdDisplay: document.getElementById('station-id-display'),
+      backToStations: document.getElementById('back-to-stations'),
       serialInput: document.getElementById('serial-number'),
       startBtn: document.getElementById('start-btn'),
       snError: document.getElementById('sn-error'),
+      viewerStationId: document.getElementById('viewer-station-id'),
+      viewerDocTitle: document.getElementById('viewer-doc-title'),
       currentSn: document.getElementById('current-sn'),
       currentPage: document.getElementById('current-page'),
       totalPagesEl: document.getElementById('total-pages'),
@@ -44,6 +54,7 @@ class AssemblyViewer {
       pdfCanvas: document.getElementById('pdf-canvas'),
       progressFill: document.getElementById('progress-fill'),
       completeBtn: document.getElementById('complete-btn'),
+      completeStation: document.getElementById('complete-station'),
       completeSn: document.getElementById('complete-sn'),
       completeTime: document.getElementById('complete-time'),
       completePages: document.getElementById('complete-pages'),
@@ -54,12 +65,17 @@ class AssemblyViewer {
     this.init();
   }
 
-  init() {
+  async init() {
     this.bindEvents();
-    this.loadPDF();
+    await this.loadStations();
   }
 
   bindEvents() {
+    // Back to stations button
+    this.elements.backToStations.addEventListener('click', () => {
+      this.showScreen('station');
+    });
+
     // Serial number input
     this.elements.serialInput.addEventListener('keypress', (e) => {
       if (e.key === 'Enter') {
@@ -110,6 +126,67 @@ class AssemblyViewer {
         e.returnValue = '';
       }
     });
+  }
+
+  async loadStations() {
+    try {
+      const response = await fetch('/api/stations');
+      this.stations = await response.json();
+      this.renderStations();
+    } catch (error) {
+      console.error('Error loading stations:', error);
+    }
+  }
+
+  renderStations() {
+    this.elements.stationList.innerHTML = this.stations.map(station => `
+      <div class="station-card" data-station-id="${station.station_id}">
+        <span class="station-id">${station.station_id}</span>
+        <div class="station-name">${station.station_name}</div>
+        <div class="station-doc">${station.document_name}</div>
+      </div>
+    `).join('');
+
+    // Add click handlers
+    this.elements.stationList.querySelectorAll('.station-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const stationId = card.dataset.stationId;
+        this.selectStation(stationId);
+      });
+    });
+  }
+
+  async selectStation(stationId) {
+    const station = this.stations.find(s => s.station_id === stationId);
+    if (!station) return;
+
+    this.selectedStation = station;
+
+    // Update SN screen with station info
+    this.elements.selectedStationName.textContent = station.station_name;
+    this.elements.documentTitle.textContent = station.station_name;
+    this.elements.stationIdDisplay.textContent = station.station_id;
+
+    // Load document info for this station
+    await this.loadDocument(stationId);
+
+    this.showScreen('sn');
+    this.elements.serialInput.focus();
+  }
+
+  async loadDocument(stationId) {
+    try {
+      const response = await fetch(`/api/document?station=${stationId}`);
+      const doc = await response.json();
+
+      this.totalPages = doc.totalPages;
+      this.pdfPath = `/pdf/${doc.pdfFile}`;
+
+      // Load PDF
+      await this.loadPDF();
+    } catch (error) {
+      console.error('Error loading document:', error);
+    }
   }
 
   async loadPDF() {
@@ -172,11 +249,19 @@ class AssemblyViewer {
       return;
     }
 
+    if (!this.selectedStation) {
+      this.elements.snError.textContent = 'Please select a station first';
+      return;
+    }
+
     try {
       const response = await fetch('/api/session/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serialNumber })
+        body: JSON.stringify({
+          serialNumber,
+          stationId: this.selectedStation.station_id
+        })
       });
 
       const data = await response.json();
@@ -195,6 +280,8 @@ class AssemblyViewer {
       this.pageTimes = {};
 
       // Update UI
+      this.elements.viewerStationId.textContent = data.stationId;
+      this.elements.viewerDocTitle.textContent = data.stationName;
       this.elements.currentSn.textContent = serialNumber;
       this.elements.totalPagesEl.textContent = this.totalPages;
       this.elements.snError.textContent = '';
@@ -407,6 +494,7 @@ class AssemblyViewer {
 
   showCompletionScreen(summary) {
     // Update completion details
+    this.elements.completeStation.textContent = `${this.selectedStation.station_id} - ${this.selectedStation.station_name}`;
     this.elements.completeSn.textContent = this.serialNumber;
 
     const totalSeconds = summary.session.total_duration_seconds ||
@@ -462,6 +550,7 @@ class AssemblyViewer {
     this.sessionStartTime = null;
     this.pageStartTime = null;
     this.pageTimes = {};
+    this.pdfDoc = null;
 
     // Clear timers
     if (this.pageTimerInterval) clearInterval(this.pageTimerInterval);
@@ -475,9 +564,9 @@ class AssemblyViewer {
     this.elements.progressFill.style.width = '2.5%';
     this.elements.completeBtn.style.display = 'none';
 
-    // Show SN screen
-    this.showScreen('sn');
-    this.elements.serialInput.focus();
+    // Show station screen
+    this.selectedStation = null;
+    this.showScreen('station');
   }
 }
 

@@ -41,6 +41,89 @@ html, body {
 }
 
 /* =====================
+   Station Selection Screen
+   ===================== */
+#station-screen {
+  justify-content: center;
+  align-items: center;
+  background: linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%);
+}
+
+.station-container {
+  background: white;
+  padding: 48px;
+  border-radius: 16px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  max-width: 600px;
+  width: 90%;
+  text-align: center;
+}
+
+.station-header h1 {
+  color: var(--text-dark);
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.station-header .subtitle {
+  color: #6b7280;
+  font-size: 14px;
+  margin-bottom: 32px;
+}
+
+.station-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.station-card {
+  background: #f9fafb;
+  border: 2px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 20px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+}
+
+.station-card:hover {
+  border-color: var(--primary-color);
+  background: #eff6ff;
+}
+
+.station-card .station-id {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary-color);
+  background: #dbeafe;
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: inline-block;
+  margin-bottom: 8px;
+}
+
+.station-card .station-name {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-dark);
+  margin-bottom: 4px;
+}
+
+.station-card .station-doc {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.station-info {
+  color: #9ca3af;
+  font-size: 12px;
+  margin-top: 24px;
+}
+
+/* =====================
    Serial Number Screen
    ===================== */
 #sn-screen {
@@ -126,6 +209,22 @@ html, body {
   cursor: not-allowed;
 }
 
+.btn-secondary {
+  background-color: #f3f4f6;
+  color: #374151;
+  border: 1px solid #d1d5db;
+  padding: 12px 24px;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+  background-color: #e5e7eb;
+}
+
 .error-message {
   color: var(--error-color);
   font-size: 14px;
@@ -133,10 +232,35 @@ html, body {
   min-height: 20px;
 }
 
+.sn-actions {
+  margin-top: 16px;
+}
+
 .sn-info {
   color: #9ca3af;
   font-size: 12px;
   margin-top: 24px;
+}
+
+.station-badge {
+  display: inline-block;
+  background-color: var(--primary-color);
+  color: white;
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+.station-id-badge {
+  background-color: var(--primary-color);
+  color: white;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-right: 12px;
 }
 
 /* =====================

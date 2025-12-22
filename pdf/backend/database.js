@@ -44,20 +44,26 @@ function generateId() {
   return ++idCounter;
 }
 
-// Create a new assembly session
-function createSession(sessionId, serialNumber, documentName, totalPages) {
+// Create a new assembly session with station info
+function createSession(sessionId, serialNumber, stationId, stationName, documentName, totalPages) {
   const sessions = readJson(sessionsFile);
+  const now = Date.now();
   const newSession = {
     id: generateId(),
     session_id: sessionId,
     serial_number: serialNumber,
+    station_id: stationId,
+    station_name: stationName,
     document_name: documentName,
     total_pages: totalPages,
-    start_time: new Date().toISOString(),
+    start_time: now,
+    start_time_iso: new Date(now).toISOString(),
     end_time: null,
+    end_time_iso: null,
     total_duration_seconds: null,
     status: 'in_progress',
-    created_at: new Date().toISOString()
+    created_at: now,
+    created_at_iso: new Date(now).toISOString()
   };
   sessions.push(newSession);
   writeJson(sessionsFile, sessions);
@@ -70,10 +76,11 @@ function endSession(sessionId) {
   const sessionIndex = sessions.findIndex(s => s.session_id === sessionId);
 
   if (sessionIndex !== -1) {
-    const startTime = new Date(sessions[sessionIndex].start_time);
-    const endTime = new Date();
-    sessions[sessionIndex].end_time = endTime.toISOString();
-    sessions[sessionIndex].total_duration_seconds = (endTime - startTime) / 1000;
+    const now = Date.now();
+    const startTime = sessions[sessionIndex].start_time;
+    sessions[sessionIndex].end_time = now;
+    sessions[sessionIndex].end_time_iso = new Date(now).toISOString();
+    sessions[sessionIndex].total_duration_seconds = (now - startTime) / 1000;
     sessions[sessionIndex].status = 'completed';
     writeJson(sessionsFile, sessions);
   }
@@ -82,16 +89,19 @@ function endSession(sessionId) {
 // Record page entry
 function recordPageEntry(sessionId, pageNumber, visitSequence, navigationDirection) {
   const visits = readJson(pageVisitsFile);
+  const now = Date.now();
   const newVisit = {
     id: generateId(),
     session_id: sessionId,
     page_number: pageNumber,
     visit_sequence: visitSequence,
-    entry_time: new Date().toISOString(),
+    entry_time: now,
+    entry_time_iso: new Date(now).toISOString(),
     exit_time: null,
+    exit_time_iso: null,
     duration_seconds: null,
     navigation_direction: navigationDirection,
-    created_at: new Date().toISOString()
+    created_at: now
   };
   visits.push(newVisit);
   writeJson(pageVisitsFile, visits);
@@ -104,10 +114,11 @@ function recordPageExit(visitId) {
   const visitIndex = visits.findIndex(v => v.id === visitId);
 
   if (visitIndex !== -1) {
-    const entryTime = new Date(visits[visitIndex].entry_time);
-    const exitTime = new Date();
-    visits[visitIndex].exit_time = exitTime.toISOString();
-    visits[visitIndex].duration_seconds = (exitTime - entryTime) / 1000;
+    const now = Date.now();
+    const entryTime = visits[visitIndex].entry_time;
+    visits[visitIndex].exit_time = now;
+    visits[visitIndex].exit_time_iso = new Date(now).toISOString();
+    visits[visitIndex].duration_seconds = (now - entryTime) / 1000;
     writeJson(pageVisitsFile, visits);
     return { duration_seconds: visits[visitIndex].duration_seconds };
   }
@@ -117,16 +128,18 @@ function recordPageExit(visitId) {
 // Log navigation action
 function logNavigation(sessionId, fromPage, toPage, action, timeOnPreviousPage, cumulativeTime) {
   const logs = readJson(navigationLogFile);
+  const now = Date.now();
   const newLog = {
     id: generateId(),
     session_id: sessionId,
     from_page: fromPage,
     to_page: toPage,
     action: action,
-    timestamp: new Date().toISOString(),
+    timestamp: now,
+    timestamp_iso: new Date(now).toISOString(),
     time_on_previous_page_seconds: timeOnPreviousPage,
     cumulative_time_seconds: cumulativeTime,
-    created_at: new Date().toISOString()
+    created_at: now
   };
   logs.push(newLog);
   writeJson(navigationLogFile, logs);
@@ -135,6 +148,7 @@ function logNavigation(sessionId, fromPage, toPage, action, timeOnPreviousPage, 
 // Update page time summary
 function updatePageTimeSummary(sessionId, pageNumber, durationSeconds) {
   const summaries = readJson(pageTimeSummaryFile);
+  const now = Date.now();
   const existingIndex = summaries.findIndex(
     s => s.session_id === sessionId && s.page_number === pageNumber
   );
@@ -142,7 +156,8 @@ function updatePageTimeSummary(sessionId, pageNumber, durationSeconds) {
   if (existingIndex !== -1) {
     summaries[existingIndex].total_time_seconds += durationSeconds;
     summaries[existingIndex].visit_count += 1;
-    summaries[existingIndex].last_visit_time = new Date().toISOString();
+    summaries[existingIndex].last_visit_time = now;
+    summaries[existingIndex].last_visit_time_iso = new Date(now).toISOString();
   } else {
     summaries.push({
       id: generateId(),
@@ -150,8 +165,10 @@ function updatePageTimeSummary(sessionId, pageNumber, durationSeconds) {
       page_number: pageNumber,
       total_time_seconds: durationSeconds,
       visit_count: 1,
-      first_visit_time: new Date().toISOString(),
-      last_visit_time: new Date().toISOString()
+      first_visit_time: now,
+      first_visit_time_iso: new Date(now).toISOString(),
+      last_visit_time: now,
+      last_visit_time_iso: new Date(now).toISOString()
     });
   }
   writeJson(pageTimeSummaryFile, summaries);
@@ -176,7 +193,7 @@ function getNavigationLog(sessionId) {
   const logs = readJson(navigationLogFile);
   return logs
     .filter(l => l.session_id === sessionId)
-    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    .sort((a, b) => a.timestamp - b.timestamp);
 }
 
 // Get page time summary for a session
@@ -205,7 +222,15 @@ function getSessionSummary(sessionId) {
 // Get all sessions
 function getAllSessions() {
   const sessions = readJson(sessionsFile);
-  return sessions.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  return sessions.sort((a, b) => b.created_at - a.created_at);
+}
+
+// Get sessions by station
+function getSessionsByStation(stationId) {
+  const sessions = readJson(sessionsFile);
+  return sessions
+    .filter(s => s.station_id === stationId)
+    .sort((a, b) => b.created_at - a.created_at);
 }
 
 // Get sessions by serial number
@@ -213,14 +238,24 @@ function getSessionsBySerialNumber(serialNumber) {
   const sessions = readJson(sessionsFile);
   return sessions
     .filter(s => s.serial_number === serialNumber)
-    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    .sort((a, b) => b.created_at - a.created_at);
 }
 
-// Check if serial number exists
+// Check if serial number exists (legacy - checks all stations)
 function serialNumberExists(serialNumber) {
   const sessions = readJson(sessionsFile);
   return sessions.some(
     s => s.serial_number === serialNumber && s.status === 'completed'
+  );
+}
+
+// Check if serial number exists for a specific station
+function serialNumberExistsForStation(serialNumber, stationId) {
+  const sessions = readJson(sessionsFile);
+  return sessions.some(
+    s => s.serial_number === serialNumber &&
+        s.station_id === stationId &&
+        s.status === 'completed'
   );
 }
 
@@ -238,6 +273,8 @@ module.exports = {
   getPageTimeSummary,
   getSessionSummary,
   getAllSessions,
+  getSessionsByStation,
   getSessionsBySerialNumber,
-  serialNumberExists
+  serialNumberExists,
+  serialNumberExistsForStation
 };

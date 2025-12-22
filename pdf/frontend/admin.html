@@ -305,11 +305,18 @@
     <div class="sessions-table">
       <div class="table-header">
         <h2>Assembly Sessions</h2>
-        <button class="refresh-btn" onclick="loadSessions()">Refresh</button>
+        <div style="display: flex; gap: 12px; align-items: center;">
+          <select id="station-filter" onchange="filterByStation()" style="padding: 8px 12px; border-radius: 6px; border: 1px solid #d1d5db; font-size: 14px;">
+            <option value="">All Stations</option>
+          </select>
+          <button class="refresh-btn" onclick="loadSessions()">Refresh</button>
+        </div>
       </div>
       <table>
         <thead>
           <tr>
+            <th>Station ID</th>
+            <th>Station Name</th>
             <th>Serial Number</th>
             <th>Start Time</th>
             <th>End Time</th>
@@ -320,7 +327,7 @@
         </thead>
         <tbody id="sessions-body">
           <tr>
-            <td colspan="6" class="empty-state">Loading sessions...</td>
+            <td colspan="8" class="empty-state">Loading sessions...</td>
           </tr>
         </tbody>
       </table>
@@ -342,28 +349,59 @@
 
   <script>
     let sessions = [];
+    let allSessions = [];
+    let stations = [];
+
+    async function loadStations() {
+      try {
+        const response = await fetch('/api/stations');
+        stations = await response.json();
+        const select = document.getElementById('station-filter');
+        stations.forEach(station => {
+          const option = document.createElement('option');
+          option.value = station.station_id;
+          option.textContent = `${station.station_id} - ${station.station_name}`;
+          select.appendChild(option);
+        });
+      } catch (error) {
+        console.error('Error loading stations:', error);
+      }
+    }
 
     async function loadSessions() {
       try {
         const response = await fetch('/api/sessions');
-        sessions = await response.json();
-        renderSessions();
-        updateStats();
+        allSessions = await response.json();
+        sessions = allSessions;
+        filterByStation();
       } catch (error) {
         console.error('Error loading sessions:', error);
       }
+    }
+
+    function filterByStation() {
+      const stationId = document.getElementById('station-filter').value;
+      if (stationId) {
+        sessions = allSessions.filter(s => s.station_id === stationId);
+      } else {
+        sessions = allSessions;
+      }
+      renderSessions();
+      updateStats();
     }
 
     function renderSessions() {
       const tbody = document.getElementById('sessions-body');
 
       if (sessions.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No assembly sessions yet</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No assembly sessions yet</td></tr>';
         return;
       }
 
       tbody.innerHTML = sessions.map(session => `
         <tr>
+          <td><span style="background: #dbeafe; color: #1d4ed8; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600;">${session.station_id || '-'}</span></td>
+          <td>${session.station_name || '-'}</td>
           <td><strong>${session.serial_number}</strong></td>
           <td>${formatDateTime(session.start_time)}</td>
           <td>${session.end_time ? formatDateTime(session.end_time) : '-'}</td>
@@ -410,6 +448,18 @@
         <div class="detail-section">
           <h3>Session Information</h3>
           <div class="detail-grid">
+            <div class="detail-item">
+              <span class="label">Station ID:</span>
+              <span class="value"><span style="background: #dbeafe; color: #1d4ed8; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600;">${session.station_id || '-'}</span></span>
+            </div>
+            <div class="detail-item">
+              <span class="label">Station Name:</span>
+              <span class="value">${session.station_name || '-'}</span>
+            </div>
+            <div class="detail-item">
+              <span class="label">Document:</span>
+              <span class="value">${session.document_name || '-'}</span>
+            </div>
             <div class="detail-item">
               <span class="label">Serial Number:</span>
               <span class="value">${session.serial_number}</span>
@@ -491,9 +541,11 @@
       document.getElementById('session-modal').classList.remove('active');
     }
 
-    function formatDateTime(dateStr) {
-      if (!dateStr) return '-';
-      const date = new Date(dateStr + 'Z'); // Assume UTC
+    function formatDateTime(timestamp) {
+      if (!timestamp) return '-';
+      // Handle both numeric timestamps (milliseconds) and ISO strings
+      const date = typeof timestamp === 'number' ? new Date(timestamp) : new Date(timestamp);
+      if (isNaN(date.getTime())) return '-';
       return date.toLocaleString();
     }
 
@@ -523,7 +575,8 @@
       }
     });
 
-    // Load sessions on page load
+    // Load stations and sessions on page load
+    loadStations();
     loadSessions();
 
     // Auto-refresh every 30 seconds

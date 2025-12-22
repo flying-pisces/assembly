@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const db = require('./database');
 
@@ -17,46 +18,98 @@ app.use('/pdf', express.static(path.join(__dirname, '..')));
 // Initialize database
 db.initializeDatabase();
 
-// Document configuration
-const DOCUMENT_CONFIG = {
-  name: '[M-2007091] Left Hip Mechanical Assembly (DELTA)',
-  totalPages: 40,
-  pdfFile: '[M-2007091] Left Hip Mechanical Assembly (DELTA).pdf'
+// Station configurations - station_id derived from PDF filename
+const STATIONS = {
+  'M-2007091': {
+    station_id: 'M-2007091',
+    station_name: 'Left Hip Mechanical Assembly',
+    document_name: '[M-2007091] Left Hip Mechanical Assembly (DELTA)',
+    pdf_file: '[M-2007091] Left Hip Mechanical Assembly (DELTA).pdf',
+    total_pages: 40
+  },
+  'M-2020010': {
+    station_id: 'M-2020010',
+    station_name: 'Left Hip Motor Assembly',
+    document_name: '[M-2020010] Left Hip Motor Assembly (DELTA)',
+    pdf_file: '[M-2020010] Left Hip Motor Assembly (DELTA).pdf',
+    total_pages: 8
+  }
 };
+
+// Default station
+const DEFAULT_STATION = 'M-2020010';
 
 // API Routes
 
-// Get document info
+// Get all available stations
+app.get('/api/stations', (req, res) => {
+  const stationList = Object.values(STATIONS).map(s => ({
+    station_id: s.station_id,
+    station_name: s.station_name,
+    document_name: s.document_name
+  }));
+  res.json(stationList);
+});
+
+// Get document info for a specific station
 app.get('/api/document', (req, res) => {
-  res.json(DOCUMENT_CONFIG);
+  const stationId = req.query.station || DEFAULT_STATION;
+  const station = STATIONS[stationId];
+
+  if (!station) {
+    return res.status(404).json({ error: 'Station not found' });
+  }
+
+  res.json({
+    station_id: station.station_id,
+    station_name: station.station_name,
+    name: station.document_name,
+    totalPages: station.total_pages || 40,
+    pdfFile: station.pdf_file
+  });
 });
 
 // Start a new assembly session
 app.post('/api/session/start', (req, res) => {
   try {
-    const { serialNumber } = req.body;
+    const { serialNumber, stationId } = req.body;
+    const station = STATIONS[stationId || DEFAULT_STATION];
 
     if (!serialNumber) {
       return res.status(400).json({ error: 'Serial number is required' });
     }
 
-    // Check if serial number was already used for a completed assembly
-    if (db.serialNumberExists(serialNumber)) {
+    if (!station) {
+      return res.status(400).json({ error: 'Invalid station' });
+    }
+
+    // Check if serial number was already used for a completed assembly at this station
+    if (db.serialNumberExistsForStation(serialNumber, station.station_id)) {
       return res.status(400).json({
         error: 'Serial number already used',
-        message: 'This serial number has already been used for a completed assembly'
+        message: `This serial number has already been used for a completed assembly at station ${station.station_name}`
       });
     }
 
     const sessionId = uuidv4();
-    db.createSession(sessionId, serialNumber, DOCUMENT_CONFIG.name, DOCUMENT_CONFIG.totalPages);
+    db.createSession(
+      sessionId,
+      serialNumber,
+      station.station_id,
+      station.station_name,
+      station.document_name,
+      station.total_pages || 40
+    );
 
     res.json({
       success: true,
       sessionId,
       serialNumber,
-      documentName: DOCUMENT_CONFIG.name,
-      totalPages: DOCUMENT_CONFIG.totalPages
+      stationId: station.station_id,
+      stationName: station.station_name,
+      documentName: station.document_name,
+      totalPages: station.total_pages || 40,
+      pdfFile: station.pdf_file
     });
   } catch (error) {
     console.error('Error starting session:', error);
@@ -72,14 +125,7 @@ app.post('/api/session/:sessionId/end', (req, res) => {
 
     // Record exit from final page if provided
     if (finalPageVisitId) {
-      const exitResult = db.recordPageExit(finalPageVisitId);
-      if (exitResult && exitResult.duration_seconds) {
-        // Get current page from the visit
-        const session = db.getSession(sessionId);
-        if (session) {
-          // Update summary would need the page number - handled by frontend
-        }
-      }
+      db.recordPageExit(finalPageVisitId);
     }
 
     db.endSession(sessionId);
@@ -198,10 +244,11 @@ app.get('/api/session/:sessionId/summary', (req, res) => {
   }
 });
 
-// Get all sessions
+// Get all sessions (optionally filtered by station)
 app.get('/api/sessions', (req, res) => {
   try {
-    const sessions = db.getAllSessions();
+    const stationId = req.query.station;
+    const sessions = stationId ? db.getSessionsByStation(stationId) : db.getAllSessions();
     res.json(sessions);
   } catch (error) {
     console.error('Error getting sessions:', error);
@@ -233,6 +280,8 @@ app.get('/admin', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Assembly Instructions Server running on http://localhost:${PORT}`);
-  console.log(`Document: ${DOCUMENT_CONFIG.name}`);
-  console.log(`Total Pages: ${DOCUMENT_CONFIG.totalPages}`);
+  console.log(`Available Stations:`);
+  Object.values(STATIONS).forEach(s => {
+    console.log(`  - ${s.station_id}: ${s.station_name}`);
+  });
 });

@@ -8,12 +8,29 @@
 </head>
 <body>
   <div id="app">
+    <!-- Station Selection Screen -->
+    <div id="station-screen" class="screen active">
+      <div class="station-container">
+        <div class="station-header">
+          <h1>Assembly Station</h1>
+          <p class="subtitle">Select your workstation to begin</p>
+        </div>
+        <div class="station-list" id="station-list">
+          <!-- Stations will be loaded dynamically -->
+        </div>
+        <div class="station-info">
+          <p>1X - CONFIDENTIAL</p>
+        </div>
+      </div>
+    </div>
+
     <!-- Serial Number Entry Screen -->
-    <div id="sn-screen" class="screen active">
+    <div id="sn-screen" class="screen">
       <div class="sn-container">
         <div class="sn-header">
-          <h1>Left Hip Mechanical Assembly</h1>
-          <p class="document-id">[M-2007091] DELTA</p>
+          <p class="station-badge" id="selected-station-name"></p>
+          <h1 id="document-title">Assembly Instructions</h1>
+          <p class="document-id" id="station-id-display"></p>
         </div>
         <div class="sn-form">
           <label for="serial-number">Scan or Enter Product Serial Number</label>
@@ -29,6 +46,9 @@
           </div>
           <p id="sn-error" class="error-message"></p>
         </div>
+        <div class="sn-actions">
+          <button id="back-to-stations" class="btn-secondary">Change Station</button>
+        </div>
         <div class="sn-info">
           <p>1X - CONFIDENTIAL</p>
         </div>
@@ -40,7 +60,8 @@
       <!-- Header -->
       <header class="viewer-header">
         <div class="header-left">
-          <span class="doc-title">Left Hip Mechanical Assembly (DELTA)</span>
+          <span class="station-id-badge" id="viewer-station-id"></span>
+          <span class="doc-title" id="viewer-doc-title">Assembly Instructions</span>
           <span class="serial-display">SN: <span id="current-sn"></span></span>
         </div>
         <div class="header-center">
@@ -109,6 +130,10 @@
         </div>
         <h1>Assembly Complete!</h1>
         <div class="complete-details">
+          <div class="detail-row">
+            <span class="detail-label">Station:</span>
+            <span id="complete-station" class="detail-value"></span>
+          </div>
           <div class="detail-row">
             <span class="detail-label">Serial Number:</span>
             <span id="complete-sn" class="detail-value"></span>
