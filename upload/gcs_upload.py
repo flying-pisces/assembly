@@ -46,9 +46,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Default paths
+# Default paths and configuration
 SCRIPT_DIR = Path(__file__).parent.resolve()
 DEFAULT_CREDENTIALS_PATH = SCRIPT_DIR / "upload.json"
+DEFAULT_BUCKET = "automationstationddata"
 
 
 class GCSUploader:
@@ -369,7 +370,8 @@ Examples:
     parser.add_argument(
         "bucket_name",
         nargs="?",
-        help="Name of the GCS bucket"
+        default=DEFAULT_BUCKET,
+        help=f"Name of the GCS bucket (default: {DEFAULT_BUCKET})"
     )
 
     parser.add_argument(
