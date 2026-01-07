@@ -7,7 +7,7 @@ class AssemblyViewer {
     this.sessionId = null;
     this.serialNumber = null;
     this.currentPage = 1;
-    this.totalPages = 40;
+    this.totalPages = null;
     this.visitSequence = 0;
     this.currentVisitId = null;
 
@@ -195,6 +195,8 @@ class AssemblyViewer {
       this.totalPages = this.pdfDoc.numPages;
       this.elements.totalPagesEl.textContent = this.totalPages;
       console.log('PDF loaded successfully:', this.totalPages, 'pages');
+      // Update UI to enable/disable navigation buttons based on actual page count
+      this.updateUI();
     } catch (error) {
       console.error('Error loading PDF:', error);
     }
@@ -274,7 +276,11 @@ class AssemblyViewer {
       // Initialize session
       this.sessionId = data.sessionId;
       this.serialNumber = serialNumber;
-      this.totalPages = data.totalPages;
+      // Use server's totalPages if provided, otherwise keep PDF.js detected value
+      if (data.totalPages && data.totalPages > 0) {
+        this.totalPages = data.totalPages;
+      }
+      // If still not set, it will be set when PDF loads in loadPDF()
       this.currentPage = 1;
       this.visitSequence = 0;
       this.pageTimes = {};
@@ -283,7 +289,7 @@ class AssemblyViewer {
       this.elements.viewerStationId.textContent = data.stationId;
       this.elements.viewerDocTitle.textContent = data.stationName;
       this.elements.currentSn.textContent = serialNumber;
-      this.elements.totalPagesEl.textContent = this.totalPages;
+      this.elements.totalPagesEl.textContent = this.totalPages || '-';
       this.elements.snError.textContent = '';
 
       // Start timing
@@ -301,7 +307,8 @@ class AssemblyViewer {
   }
 
   async goToPage(pageNum, direction = 'forward') {
-    if (pageNum < 1 || pageNum > this.totalPages) return;
+    // Don't go below page 1, and don't exceed totalPages (if known)
+    if (pageNum < 1 || (this.totalPages && pageNum > this.totalPages)) return;
 
     // Record time on previous page
     if (this.currentVisitId) {
@@ -401,7 +408,7 @@ class AssemblyViewer {
   navigatePage(direction) {
     if (direction === 'prev' && this.currentPage > 1) {
       this.goToPage(this.currentPage - 1, 'backward');
-    } else if (direction === 'next' && this.currentPage < this.totalPages) {
+    } else if (direction === 'next' && (!this.totalPages || this.currentPage < this.totalPages)) {
       this.goToPage(this.currentPage + 1, 'forward');
     }
   }
@@ -409,17 +416,19 @@ class AssemblyViewer {
   updateUI() {
     // Update page number
     this.elements.currentPage.textContent = this.currentPage;
+    this.elements.totalPagesEl.textContent = this.totalPages || '-';
 
     // Update navigation buttons
     this.elements.prevBtn.disabled = this.currentPage <= 1;
-    this.elements.nextBtn.disabled = this.currentPage >= this.totalPages;
+    // Only disable next if we know the total and we're at the last page
+    this.elements.nextBtn.disabled = this.totalPages && this.currentPage >= this.totalPages;
 
     // Update progress bar
-    const progress = (this.currentPage / this.totalPages) * 100;
+    const progress = this.totalPages ? (this.currentPage / this.totalPages) * 100 : 0;
     this.elements.progressFill.style.width = `${progress}%`;
 
     // Show/hide complete button on last page
-    this.elements.completeBtn.style.display = this.currentPage === this.totalPages ? 'block' : 'none';
+    this.elements.completeBtn.style.display = (this.totalPages && this.currentPage === this.totalPages) ? 'block' : 'none';
   }
 
   startPageTimer() {
@@ -474,7 +483,10 @@ class AssemblyViewer {
       const response = await fetch(`/api/session/${this.sessionId}/end`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ finalPageVisitId: this.currentVisitId })
+        body: JSON.stringify({
+          finalPageVisitId: this.currentVisitId,
+          finalPage: this.currentPage
+        })
       });
 
       const data = await response.json();

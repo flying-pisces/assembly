@@ -4,40 +4,66 @@ const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const db = require('./database');
+const camera = require('./camera');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Path to instruction folder (where PDFs are stored)
+const INSTRUCTION_DIR = path.join(__dirname, '..', '..', 'instruction');
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'frontend')));
 app.use('/pages', express.static(path.join(__dirname, '..', 'public', 'pages')));
-app.use('/pdf', express.static(path.join(__dirname, '..')));
+// Serve PDFs from instruction folder
+app.use('/pdf', express.static(INSTRUCTION_DIR));
+// Serve recordings
+app.use('/recordings', express.static(camera.RECORDINGS_DIR));
 
 // Initialize database
 db.initializeDatabase();
 
-// Station configurations - station_id derived from PDF filename
-const STATIONS = {
-  'M-2007091': {
-    station_id: 'M-2007091',
-    station_name: 'Left Hip Mechanical Assembly',
-    document_name: '[M-2007091] Left Hip Mechanical Assembly (DELTA)',
-    pdf_file: '[M-2007091] Left Hip Mechanical Assembly (DELTA).pdf',
-    total_pages: 40
-  },
-  'M-2020010': {
-    station_id: 'M-2020010',
-    station_name: 'Left Hip Motor Assembly',
-    document_name: '[M-2020010] Left Hip Motor Assembly (DELTA)',
-    pdf_file: '[M-2020010] Left Hip Motor Assembly (DELTA).pdf',
-    total_pages: 8
-  }
-};
+// Dynamically scan instruction folder for PDF files
+function scanForStations() {
+  const stations = {};
 
-// Default station
-const DEFAULT_STATION = 'M-2020010';
+  if (!fs.existsSync(INSTRUCTION_DIR)) {
+    console.warn(`Warning: Instruction directory not found: ${INSTRUCTION_DIR}`);
+    return stations;
+  }
+
+  const files = fs.readdirSync(INSTRUCTION_DIR);
+  const pdfFiles = files.filter(f => f.toLowerCase().endsWith('.pdf'));
+
+  for (const pdfFile of pdfFiles) {
+    // Parse station ID from filename format: [M-XXXXXXX] Station Name (DELTA).pdf
+    const match = pdfFile.match(/^\[([^\]]+)\]\s*(.+?)(?:\s*\([^)]+\))?\.pdf$/i);
+
+    if (match) {
+      const stationId = match[1];
+      const stationName = match[2].trim();
+      const documentName = pdfFile.replace('.pdf', '');
+
+      stations[stationId] = {
+        station_id: stationId,
+        station_name: stationName,
+        document_name: documentName,
+        pdf_file: pdfFile,
+        total_pages: null // Will be determined by PDF.js on client
+      };
+    }
+  }
+
+  return stations;
+}
+
+// Load stations from instruction folder
+const STATIONS = scanForStations();
+
+// Default station (first available or null)
+const DEFAULT_STATION = Object.keys(STATIONS)[0] || null;
 
 // API Routes
 
@@ -64,13 +90,13 @@ app.get('/api/document', (req, res) => {
     station_id: station.station_id,
     station_name: station.station_name,
     name: station.document_name,
-    totalPages: station.total_pages || 40,
+    totalPages: station.total_pages,
     pdfFile: station.pdf_file
   });
 });
 
 // Start a new assembly session
-app.post('/api/session/start', (req, res) => {
+app.post('/api/session/start', async (req, res) => {
   try {
     const { serialNumber, stationId } = req.body;
     const station = STATIONS[stationId || DEFAULT_STATION];
@@ -98,8 +124,11 @@ app.post('/api/session/start', (req, res) => {
       station.station_id,
       station.station_name,
       station.document_name,
-      station.total_pages || 40
+      station.total_pages
     );
+
+    // Start camera recording
+    const cameraResult = await camera.startSessionRecording(sessionId, serialNumber, station.station_id);
 
     res.json({
       success: true,
@@ -108,8 +137,9 @@ app.post('/api/session/start', (req, res) => {
       stationId: station.station_id,
       stationName: station.station_name,
       documentName: station.document_name,
-      totalPages: station.total_pages || 40,
-      pdfFile: station.pdf_file
+      totalPages: station.total_pages,
+      pdfFile: station.pdf_file,
+      recording: cameraResult.success
     });
   } catch (error) {
     console.error('Error starting session:', error);
@@ -118,22 +148,33 @@ app.post('/api/session/start', (req, res) => {
 });
 
 // End assembly session
-app.post('/api/session/:sessionId/end', (req, res) => {
+app.post('/api/session/:sessionId/end', async (req, res) => {
   try {
     const { sessionId } = req.params;
-    const { finalPageVisitId } = req.body;
+    const { finalPageVisitId, finalPage } = req.body;
 
     // Record exit from final page if provided
     if (finalPageVisitId) {
       db.recordPageExit(finalPageVisitId);
     }
 
+    // Save final page clip and stop recording
+    if (finalPage) {
+      await camera.savePageClip(sessionId, finalPage);
+    }
+    const recordingResult = await camera.stopSessionRecording(sessionId);
+
     db.endSession(sessionId);
     const summary = db.getSessionSummary(sessionId);
 
     res.json({
       success: true,
-      summary
+      summary,
+      recordings: recordingResult.success ? {
+        fullVideo: recordingResult.fullVideo ? path.basename(recordingResult.fullVideo) : null,
+        pageClips: recordingResult.pageClips || [],
+        directory: recordingResult.sessionDir ? path.basename(recordingResult.sessionDir) : null
+      } : null
     });
   } catch (error) {
     console.error('Error ending session:', error);
@@ -149,6 +190,9 @@ app.post('/api/session/:sessionId/page/enter', (req, res) => {
 
     const visitId = db.recordPageEntry(sessionId, pageNumber, visitSequence, navigationDirection);
 
+    // Mark page entry for camera
+    camera.markPageEntry(sessionId, pageNumber);
+
     res.json({
       success: true,
       visitId
@@ -160,7 +204,7 @@ app.post('/api/session/:sessionId/page/enter', (req, res) => {
 });
 
 // Record page exit
-app.post('/api/session/:sessionId/page/exit', (req, res) => {
+app.post('/api/session/:sessionId/page/exit', async (req, res) => {
   try {
     const { sessionId } = req.params;
     const { visitId, pageNumber, durationSeconds } = req.body;
@@ -171,6 +215,13 @@ app.post('/api/session/:sessionId/page/exit', (req, res) => {
 
     if (pageNumber !== undefined && durationSeconds !== undefined) {
       db.updatePageTimeSummary(sessionId, pageNumber, durationSeconds);
+    }
+
+    // Save page clip when exiting a page
+    if (pageNumber !== undefined) {
+      camera.savePageClip(sessionId, pageNumber).catch(err => {
+        console.error('Error saving page clip:', err);
+      });
     }
 
     res.json({ success: true });
@@ -278,10 +329,53 @@ app.get('/admin', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'frontend', 'admin.html'));
 });
 
-app.listen(PORT, () => {
+// ============ Camera API Routes ============
+
+// Check camera availability
+app.get('/api/camera/status', async (req, res) => {
+  try {
+    const available = await camera.isCameraAvailable();
+    res.json({
+      available,
+      rtspUrl: available ? 'rtsp://192.168.42.1:554/live' : null
+    });
+  } catch (error) {
+    console.error('Error checking camera status:', error);
+    res.status(500).json({ error: 'Failed to check camera status' });
+  }
+});
+
+// Get all recordings (for admin page)
+app.get('/api/recordings', (req, res) => {
+  try {
+    const recordings = camera.getAllRecordings();
+    res.json(recordings);
+  } catch (error) {
+    console.error('Error getting recordings:', error);
+    res.status(500).json({ error: 'Failed to get recordings' });
+  }
+});
+
+// Get recordings for a specific serial number
+app.get('/api/recordings/:serialNumber/:stationId', (req, res) => {
+  try {
+    const { serialNumber, stationId } = req.params;
+    const recordings = camera.listRecordings(serialNumber, stationId);
+    res.json(recordings);
+  } catch (error) {
+    console.error('Error getting recordings:', error);
+    res.status(500).json({ error: 'Failed to get recordings' });
+  }
+});
+
+app.listen(PORT, async () => {
   console.log(`Assembly Instructions Server running on http://localhost:${PORT}`);
   console.log(`Available Stations:`);
   Object.values(STATIONS).forEach(s => {
     console.log(`  - ${s.station_id}: ${s.station_name}`);
   });
+
+  // Check camera status
+  const cameraAvailable = await camera.isCameraAvailable();
+  console.log(`Camera Status: ${cameraAvailable ? 'Connected (rtsp://192.168.42.1:554/live)' : 'Not available'}`);
 });

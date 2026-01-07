@@ -270,13 +270,184 @@
       padding: 48px;
       color: #6b7280;
     }
+
+    .camera-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .camera-status.online {
+      background-color: #dcfce7;
+      color: #166534;
+    }
+
+    .camera-status.offline {
+      background-color: #fee2e2;
+      color: #991b1b;
+    }
+
+    .camera-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: currentColor;
+    }
+
+    .recordings-section {
+      margin-top: 24px;
+    }
+
+    .recordings-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 16px;
+    }
+
+    .recording-card {
+      background-color: #f9fafb;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid #e5e7eb;
+    }
+
+    .recording-card .preview {
+      height: 120px;
+      background-color: #1f2937;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .recording-card .preview img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+
+    .recording-card .preview video {
+      max-width: 100%;
+      max-height: 100%;
+    }
+
+    .recording-card .play-icon {
+      position: absolute;
+      font-size: 48px;
+      opacity: 0.8;
+    }
+
+    .recording-card .info {
+      padding: 12px;
+    }
+
+    .recording-card .filename {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      word-break: break-all;
+    }
+
+    .recording-card .meta {
+      font-size: 12px;
+      color: #6b7280;
+    }
+
+    .recording-card .actions {
+      padding: 8px 12px;
+      border-top: 1px solid #e5e7eb;
+      display: flex;
+      gap: 8px;
+    }
+
+    .recording-card .actions a {
+      flex: 1;
+      text-align: center;
+      padding: 6px 12px;
+      background-color: #2563eb;
+      color: white;
+      text-decoration: none;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    .recording-card .actions a:hover {
+      background-color: #1d4ed8;
+    }
+
+    .video-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.9);
+      z-index: 2000;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .video-modal.active {
+      display: flex;
+    }
+
+    .video-modal video,
+    .video-modal img {
+      max-width: 90%;
+      max-height: 90%;
+    }
+
+    .video-modal .close-btn {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      color: white;
+      font-size: 32px;
+      background: none;
+      border: none;
+      cursor: pointer;
+    }
+
+    .tab-buttons {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .tab-btn {
+      padding: 8px 16px;
+      border: 1px solid #d1d5db;
+      background: white;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .tab-btn.active {
+      background-color: #2563eb;
+      color: white;
+      border-color: #2563eb;
+    }
   </style>
 </head>
 <body>
   <header>
-    <div class="container">
-      <h1>Assembly Dashboard</h1>
-      <p>Monitor assembly sessions and track operator performance</p>
+    <div class="container" style="display: flex; justify-content: space-between; align-items: center;">
+      <div>
+        <h1>Assembly Dashboard</h1>
+        <p>Monitor assembly sessions and track operator performance</p>
+      </div>
+      <div id="camera-status" class="camera-status offline">
+        <span class="camera-dot"></span>
+        <span>Camera: Checking...</span>
+      </div>
     </div>
   </header>
 
@@ -347,10 +518,71 @@
     </div>
   </div>
 
+  <!-- Video Viewer Modal -->
+  <div id="video-modal" class="video-modal">
+    <button class="close-btn" onclick="closeVideoModal()">&times;</button>
+    <div id="video-content"></div>
+  </div>
+
   <script>
     let sessions = [];
     let allSessions = [];
     let stations = [];
+
+    // Check camera status
+    async function checkCameraStatus() {
+      try {
+        const response = await fetch('/api/camera/status');
+        const data = await response.json();
+        const statusEl = document.getElementById('camera-status');
+
+        if (data.available) {
+          statusEl.className = 'camera-status online';
+          statusEl.innerHTML = '<span class="camera-dot"></span><span>Camera: Online</span>';
+        } else {
+          statusEl.className = 'camera-status offline';
+          statusEl.innerHTML = '<span class="camera-dot"></span><span>Camera: Offline</span>';
+        }
+      } catch (error) {
+        console.error('Error checking camera status:', error);
+        const statusEl = document.getElementById('camera-status');
+        statusEl.className = 'camera-status offline';
+        statusEl.innerHTML = '<span class="camera-dot"></span><span>Camera: Error</span>';
+      }
+    }
+
+    // Open video/image in modal
+    function openMedia(url, isVideo = false) {
+      const modal = document.getElementById('video-modal');
+      const content = document.getElementById('video-content');
+
+      if (isVideo) {
+        content.innerHTML = `<video src="${url}" controls autoplay style="max-width: 90vw; max-height: 90vh;"></video>`;
+      } else {
+        content.innerHTML = `<img src="${url}" style="max-width: 90vw; max-height: 90vh;">`;
+      }
+
+      modal.classList.add('active');
+    }
+
+    function closeVideoModal() {
+      const modal = document.getElementById('video-modal');
+      const content = document.getElementById('video-content');
+      content.innerHTML = '';
+      modal.classList.remove('active');
+    }
+
+    // Load recordings for a session
+    async function loadRecordings(serialNumber, stationId) {
+      try {
+        const response = await fetch(`/api/recordings/${serialNumber}/${stationId}`);
+        const data = await response.json();
+        return data;
+      } catch (error) {
+        console.error('Error loading recordings:', error);
+        return { files: [] };
+      }
+    }
 
     async function loadStations() {
       try {
@@ -433,6 +665,11 @@
       try {
         const response = await fetch(`/api/session/${sessionId}/summary`);
         const summary = await response.json();
+
+        // Load recordings for this session
+        const recordings = await loadRecordings(summary.session.serial_number, summary.session.station_id);
+        summary.recordings = recordings;
+
         renderSessionDetail(summary);
         document.getElementById('session-modal').classList.add('active');
       } catch (error) {
@@ -441,7 +678,12 @@
     }
 
     function renderSessionDetail(summary) {
-      const { session, pageVisits, navigationLog, pageTimeSummary } = summary;
+      const { session, pageVisits, navigationLog, pageTimeSummary, recordings } = summary;
+
+      // Separate recordings into GIFs and videos
+      const gifs = recordings?.files?.filter(f => f.filename.endsWith('.gif')) || [];
+      const videos = recordings?.files?.filter(f => f.filename.endsWith('.mp4')) || [];
+      const recordingsDir = `${session.serial_number}_${session.station_id}`;
 
       const modalBody = document.getElementById('modal-body');
       modalBody.innerHTML = `
@@ -534,6 +776,60 @@
             </table>
           </div>
         </div>
+
+        <div class="detail-section recordings-section">
+          <h3>Video Recordings</h3>
+          ${(gifs.length === 0 && videos.length === 0) ? `
+            <p class="empty-state" style="padding: 24px;">No recordings available for this session</p>
+          ` : `
+            ${videos.length > 0 ? `
+              <h4 style="margin-bottom: 12px; font-size: 14px; color: #6b7280;">Full Session Video</h4>
+              <div class="recordings-grid" style="margin-bottom: 24px;">
+                ${videos.map(v => `
+                  <div class="recording-card">
+                    <div class="preview" onclick="openMedia('/recordings/${recordingsDir}/${v.filename}', true)">
+                      <span class="play-icon">▶</span>
+                    </div>
+                    <div class="info">
+                      <div class="filename">${v.filename}</div>
+                      <div class="meta">${(v.size / 1024 / 1024).toFixed(2)} MB</div>
+                    </div>
+                    <div class="actions">
+                      <a href="/recordings/${recordingsDir}/${v.filename}" target="_blank">Open</a>
+                      <a href="/recordings/${recordingsDir}/${v.filename}" download>Download</a>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            ` : ''}
+
+            ${gifs.length > 0 ? `
+              <h4 style="margin-bottom: 12px; font-size: 14px; color: #6b7280;">Page Clips (GIF)</h4>
+              <div class="recordings-grid">
+                ${gifs.sort((a, b) => {
+                  // Sort by page number
+                  const pageA = parseInt(a.filename.match(/page(\d+)/)?.[1] || 0);
+                  const pageB = parseInt(b.filename.match(/page(\d+)/)?.[1] || 0);
+                  return pageA - pageB;
+                }).map(g => `
+                  <div class="recording-card">
+                    <div class="preview" onclick="openMedia('/recordings/${recordingsDir}/${g.filename}', false)">
+                      <img src="/recordings/${recordingsDir}/${g.filename}" alt="${g.filename}">
+                    </div>
+                    <div class="info">
+                      <div class="filename">${g.filename}</div>
+                      <div class="meta">${(g.size / 1024).toFixed(1)} KB</div>
+                    </div>
+                    <div class="actions">
+                      <a href="/recordings/${recordingsDir}/${g.filename}" target="_blank">Open</a>
+                      <a href="/recordings/${recordingsDir}/${g.filename}" download>Download</a>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            ` : ''}
+          `}
+        </div>
       `;
     }
 
@@ -572,15 +868,26 @@
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         closeModal();
+        closeVideoModal();
+      }
+    });
+
+    // Close video modal on click outside
+    document.getElementById('video-modal').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) {
+        closeVideoModal();
       }
     });
 
     // Load stations and sessions on page load
     loadStations();
     loadSessions();
+    checkCameraStatus();
 
     // Auto-refresh every 30 seconds
     setInterval(loadSessions, 30000);
+    // Check camera status every 60 seconds
+    setInterval(checkCameraStatus, 60000);
   </script>
 </body>
 </html>
