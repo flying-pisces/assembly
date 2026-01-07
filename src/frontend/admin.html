@@ -279,11 +279,25 @@
       border-radius: 20px;
       font-size: 12px;
       font-weight: 600;
+      border: none;
+      cursor: default;
+      transition: all 0.2s ease;
     }
 
     .camera-status.online {
       background-color: #dcfce7;
       color: #166534;
+      cursor: pointer;
+    }
+
+    .camera-status.online:hover {
+      background-color: #bbf7d0;
+      transform: scale(1.02);
+      box-shadow: 0 2px 8px rgba(22, 101, 52, 0.3);
+    }
+
+    .camera-status.online:active {
+      transform: scale(0.98);
     }
 
     .camera-status.offline {
@@ -296,6 +310,15 @@
       height: 8px;
       border-radius: 50%;
       background-color: currentColor;
+    }
+
+    .camera-status.online .camera-dot {
+      animation: cameraPulse 2s infinite;
+    }
+
+    @keyframes cameraPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
     }
 
     .recordings-section {
@@ -444,10 +467,10 @@
         <h1>Assembly Dashboard</h1>
         <p>Monitor assembly sessions and track operator performance</p>
       </div>
-      <div id="camera-status" class="camera-status offline">
+      <button id="camera-status" class="camera-status offline" onclick="openCameraView()" title="Click to open live camera view">
         <span class="camera-dot"></span>
-        <span>Camera: Checking...</span>
-      </div>
+        <span id="camera-status-text">Camera: Checking...</span>
+      </button>
     </div>
   </header>
 
@@ -469,6 +492,37 @@
       <div class="stat-card">
         <h3>Avg. Assembly Time</h3>
         <div id="avg-time" class="value">--:--</div>
+      </div>
+    </div>
+
+    <!-- Upload Section -->
+    <div class="upload-section" style="background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 24px; margin-bottom: 24px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <div>
+          <h2 style="margin: 0; font-size: 18px;">Upload to Cloud Storage</h2>
+          <p id="upload-file-info" style="margin: 4px 0 0; color: #6b7280; font-size: 14px;">Loading file info...</p>
+        </div>
+        <button id="upload-btn" class="refresh-btn" onclick="startUpload()" style="background-color: #059669;">
+          Upload All Data
+        </button>
+      </div>
+
+      <!-- Progress Bar -->
+      <div id="upload-progress-container" style="display: none;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+          <span id="upload-status" style="font-size: 14px; color: #374151;">Uploading...</span>
+          <span id="upload-percent" style="font-size: 14px; font-weight: 600; color: #059669;">0%</span>
+        </div>
+        <div style="background: #e5e7eb; border-radius: 8px; height: 12px; overflow: hidden;">
+          <div id="upload-progress-bar" style="background: linear-gradient(90deg, #059669, #10b981); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
+        </div>
+        <div id="upload-current-file" style="font-size: 12px; color: #6b7280; margin-top: 8px;"></div>
+      </div>
+
+      <!-- Upload Results -->
+      <div id="upload-results" style="display: none; margin-top: 16px;">
+        <div id="upload-summary" style="padding: 12px; border-radius: 8px; font-size: 14px;"></div>
+        <div id="upload-file-list" style="max-height: 200px; overflow-y: auto; margin-top: 12px;"></div>
       </div>
     </div>
 
@@ -529,25 +583,67 @@
     let allSessions = [];
     let stations = [];
 
+    let cameraOnline = false;
+    let cameraPopup = null;
+
     // Check camera status
     async function checkCameraStatus() {
       try {
         const response = await fetch('/api/camera/status');
         const data = await response.json();
         const statusEl = document.getElementById('camera-status');
+        const statusTextEl = document.getElementById('camera-status-text');
 
         if (data.available) {
+          cameraOnline = true;
           statusEl.className = 'camera-status online';
-          statusEl.innerHTML = '<span class="camera-dot"></span><span>Camera: Online</span>';
+          statusTextEl.textContent = 'Camera: Online (Click to View)';
+          statusEl.title = 'Click to open live camera view';
         } else {
+          cameraOnline = false;
           statusEl.className = 'camera-status offline';
-          statusEl.innerHTML = '<span class="camera-dot"></span><span>Camera: Offline</span>';
+          statusTextEl.textContent = 'Camera: Offline';
+          statusEl.title = 'Camera is not available';
         }
       } catch (error) {
         console.error('Error checking camera status:', error);
+        cameraOnline = false;
         const statusEl = document.getElementById('camera-status');
+        const statusTextEl = document.getElementById('camera-status-text');
         statusEl.className = 'camera-status offline';
-        statusEl.innerHTML = '<span class="camera-dot"></span><span>Camera: Error</span>';
+        statusTextEl.textContent = 'Camera: Error';
+        statusEl.title = 'Error checking camera status';
+      }
+    }
+
+    // Open camera view in popup window
+    function openCameraView() {
+      if (!cameraOnline) {
+        alert('Camera is not available. Please check the camera connection.');
+        return;
+      }
+
+      // Check if popup is already open
+      if (cameraPopup && !cameraPopup.closed) {
+        cameraPopup.focus();
+        return;
+      }
+
+      // Calculate popup size (80% of screen)
+      const width = Math.min(1280, Math.floor(window.screen.width * 0.8));
+      const height = Math.min(720, Math.floor(window.screen.height * 0.8));
+      const left = Math.floor((window.screen.width - width) / 2);
+      const top = Math.floor((window.screen.height - height) / 2);
+
+      // Open camera's built-in web interface directly
+      cameraPopup = window.open(
+        'http://192.168.42.1/',
+        'CameraLiveView',
+        `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes,status=no,toolbar=no,menubar=no,location=no`
+      );
+
+      if (!cameraPopup) {
+        alert('Popup blocked! Please allow popups for this site to view the camera.');
       }
     }
 
@@ -879,10 +975,135 @@
       }
     });
 
+    // ============ Upload Functions ============
+
+    let currentUploadId = null;
+    let uploadPollInterval = null;
+
+    // Load uploadable files info
+    async function loadUploadInfo() {
+      try {
+        const response = await fetch('/api/upload/files');
+        const data = await response.json();
+
+        const infoEl = document.getElementById('upload-file-info');
+        if (data.count === 0) {
+          infoEl.textContent = 'No files to upload';
+          document.getElementById('upload-btn').disabled = true;
+          document.getElementById('upload-btn').style.opacity = '0.5';
+        } else {
+          const gifs = data.files.filter(f => f.type === 'gif').length;
+          const videos = data.files.filter(f => f.type === 'video').length;
+          const dataFiles = data.files.filter(f => f.type === 'data').length;
+          infoEl.textContent = `${data.count} files (${gifs} GIFs, ${videos} videos, ${dataFiles} data files) - ${data.totalSizeMB} MB`;
+          document.getElementById('upload-btn').disabled = false;
+          document.getElementById('upload-btn').style.opacity = '1';
+        }
+      } catch (error) {
+        console.error('Error loading upload info:', error);
+        document.getElementById('upload-file-info').textContent = 'Error loading file info';
+      }
+    }
+
+    // Start upload
+    async function startUpload() {
+      try {
+        document.getElementById('upload-btn').disabled = true;
+        document.getElementById('upload-btn').textContent = 'Uploading...';
+        document.getElementById('upload-progress-container').style.display = 'block';
+        document.getElementById('upload-results').style.display = 'none';
+
+        const response = await fetch('/api/upload/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          currentUploadId = data.uploadId;
+          // Start polling for progress
+          uploadPollInterval = setInterval(pollUploadProgress, 500);
+        } else {
+          throw new Error(data.error || 'Failed to start upload');
+        }
+      } catch (error) {
+        console.error('Error starting upload:', error);
+        alert('Failed to start upload: ' + error.message);
+        resetUploadUI();
+      }
+    }
+
+    // Poll upload progress
+    async function pollUploadProgress() {
+      if (!currentUploadId) return;
+
+      try {
+        const response = await fetch(`/api/upload/progress/${currentUploadId}`);
+        const data = await response.json();
+
+        // Update progress bar
+        document.getElementById('upload-progress-bar').style.width = `${data.percentComplete}%`;
+        document.getElementById('upload-percent').textContent = `${data.percentComplete}%`;
+        document.getElementById('upload-status').textContent = `Uploading ${data.completed}/${data.total} files...`;
+        document.getElementById('upload-current-file').textContent = data.currentFile ? `Current: ${data.currentFile}` : '';
+
+        // Check if complete
+        if (data.status === 'completed') {
+          clearInterval(uploadPollInterval);
+          uploadPollInterval = null;
+          showUploadResults(data);
+        }
+      } catch (error) {
+        console.error('Error polling progress:', error);
+      }
+    }
+
+    // Show upload results
+    function showUploadResults(data) {
+      document.getElementById('upload-progress-container').style.display = 'none';
+      document.getElementById('upload-results').style.display = 'block';
+
+      const summaryEl = document.getElementById('upload-summary');
+      const fileListEl = document.getElementById('upload-file-list');
+
+      if (data.failed === 0) {
+        summaryEl.style.backgroundColor = '#dcfce7';
+        summaryEl.style.color = '#166534';
+        summaryEl.innerHTML = `✓ Successfully uploaded ${data.completed} files in ${data.duration?.toFixed(1) || '?'}s`;
+      } else {
+        summaryEl.style.backgroundColor = '#fef3c7';
+        summaryEl.style.color = '#92400e';
+        summaryEl.innerHTML = `⚠ Uploaded ${data.completed} files, ${data.failed} failed`;
+      }
+
+      // Show file list
+      if (data.files && data.files.length > 0) {
+        fileListEl.innerHTML = data.files.map(f => `
+          <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #e5e7eb; font-size: 13px;">
+            <span>${f.name}</span>
+            <span style="color: ${f.success ? '#059669' : '#dc2626'};">${f.success ? '✓' : '✗'}</span>
+          </div>
+        `).join('');
+      }
+
+      resetUploadUI();
+      loadUploadInfo(); // Refresh file info
+    }
+
+    // Reset upload UI
+    function resetUploadUI() {
+      document.getElementById('upload-btn').disabled = false;
+      document.getElementById('upload-btn').textContent = 'Upload All Data';
+      currentUploadId = null;
+    }
+
     // Load stations and sessions on page load
     loadStations();
     loadSessions();
     checkCameraStatus();
+    loadUploadInfo();
 
     // Auto-refresh every 30 seconds
     setInterval(loadSessions, 30000);

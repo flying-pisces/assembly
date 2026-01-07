@@ -259,6 +259,16 @@ function serialNumberExistsForStation(serialNumber, stationId) {
   );
 }
 
+// Clear all database records (used after successful upload to GCS)
+function clearDatabase() {
+  const files = [sessionsFile, pageVisitsFile, navigationLogFile, pageTimeSummaryFile];
+  files.forEach(file => {
+    writeJson(file, []);
+  });
+  console.log('Database cleared successfully');
+  return { success: true, message: 'All records cleared' };
+}
+
 module.exports = {
   initializeDatabase,
   createSession,
@@ -276,5 +286,6 @@ module.exports = {
   getSessionsByStation,
   getSessionsBySerialNumber,
   serialNumberExists,
-  serialNumberExistsForStation
+  serialNumberExistsForStation,
+  clearDatabase
 };

@@ -5,6 +5,7 @@ const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const db = require('./database');
 const camera = require('./camera');
+const gcsUploader = require('./gcs-uploader');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -365,6 +366,299 @@ app.get('/api/recordings/:serialNumber/:stationId', (req, res) => {
   } catch (error) {
     console.error('Error getting recordings:', error);
     res.status(500).json({ error: 'Failed to get recordings' });
+  }
+});
+
+// Camera snapshot endpoint - captures a single frame from RTSP
+app.get('/api/camera/snapshot', async (req, res) => {
+  try {
+    const available = await camera.isCameraAvailable();
+    if (!available) {
+      return res.status(503).json({ error: 'Camera not available' });
+    }
+
+    const { spawn } = require('child_process');
+    const rtspUrl = 'rtsp://admin:admin@192.168.42.1:554/live';
+
+    // Capture a single frame using ffmpeg
+    const ffmpeg = spawn('ffmpeg', [
+      '-rtsp_transport', 'tcp',
+      '-i', rtspUrl,
+      '-frames:v', '1',
+      '-f', 'mjpeg',
+      '-q:v', '5',
+      'pipe:1'
+    ], { stdio: ['pipe', 'pipe', 'pipe'] });
+
+    let imageData = [];
+
+    ffmpeg.stdout.on('data', (chunk) => {
+      imageData.push(chunk);
+    });
+
+    ffmpeg.on('close', (code) => {
+      if (code === 0 && imageData.length > 0) {
+        res.set('Content-Type', 'image/jpeg');
+        res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.send(Buffer.concat(imageData));
+      } else {
+        res.status(500).json({ error: 'Failed to capture frame' });
+      }
+    });
+
+    ffmpeg.on('error', (err) => {
+      console.error('FFmpeg snapshot error:', err);
+      res.status(500).json({ error: 'Failed to capture frame' });
+    });
+
+    // Timeout after 5 seconds
+    setTimeout(() => {
+      ffmpeg.kill('SIGKILL');
+    }, 5000);
+
+  } catch (error) {
+    console.error('Error capturing snapshot:', error);
+    res.status(500).json({ error: 'Failed to capture snapshot' });
+  }
+});
+
+// Camera live view page
+app.get('/camera-view', (req, res) => {
+  res.send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Camera Live View</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1f2937;
+      color: white;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    header {
+      background: #111827;
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    header h1 { font-size: 18px; }
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+    }
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #22c55e;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .status-dot.error { background: #ef4444; animation: none; }
+    main {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 24px;
+    }
+    .camera-container {
+      max-width: 100%;
+      max-height: 80vh;
+      position: relative;
+    }
+    #camera-feed {
+      max-width: 100%;
+      max-height: 75vh;
+      border-radius: 8px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    }
+    .error-message {
+      text-align: center;
+      padding: 48px;
+      color: #9ca3af;
+    }
+    .controls {
+      background: #111827;
+      padding: 12px 24px;
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+    }
+    .controls button {
+      background: #3b82f6;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .controls button:hover { background: #2563eb; }
+    .controls button:disabled { background: #6b7280; cursor: not-allowed; }
+    .fps-display { color: #9ca3af; font-size: 12px; align-self: center; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Camera Live View</h1>
+    <div class="status">
+      <span id="status-dot" class="status-dot"></span>
+      <span id="status-text">Connecting...</span>
+    </div>
+  </header>
+  <main>
+    <div class="camera-container">
+      <img id="camera-feed" alt="Camera Feed" />
+      <div id="error-message" class="error-message" style="display: none;">
+        <p>Camera feed unavailable</p>
+        <p style="font-size: 14px; margin-top: 8px;">Check camera connection</p>
+      </div>
+    </div>
+  </main>
+  <div class="controls">
+    <button id="pause-btn" onclick="togglePause()">Pause</button>
+    <button onclick="captureSnapshot()">Save Snapshot</button>
+    <span class="fps-display">Refresh: <span id="fps">--</span> fps</span>
+  </div>
+  <script>
+    let isPaused = false;
+    let frameCount = 0;
+    let lastFpsUpdate = Date.now();
+    let refreshInterval = null;
+    const feedImg = document.getElementById('camera-feed');
+    const errorDiv = document.getElementById('error-message');
+    const statusDot = document.getElementById('status-dot');
+    const statusText = document.getElementById('status-text');
+
+    function updateFrame() {
+      if (isPaused) return;
+      const img = new Image();
+      img.onload = function() {
+        feedImg.src = this.src;
+        feedImg.style.display = 'block';
+        errorDiv.style.display = 'none';
+        statusDot.classList.remove('error');
+        statusText.textContent = 'Live';
+        frameCount++;
+        updateFps();
+      };
+      img.onerror = function() {
+        feedImg.style.display = 'none';
+        errorDiv.style.display = 'block';
+        statusDot.classList.add('error');
+        statusText.textContent = 'Disconnected';
+      };
+      img.src = '/api/camera/snapshot?t=' + Date.now();
+    }
+
+    function updateFps() {
+      const now = Date.now();
+      const elapsed = (now - lastFpsUpdate) / 1000;
+      if (elapsed >= 1) {
+        const fps = (frameCount / elapsed).toFixed(1);
+        document.getElementById('fps').textContent = fps;
+        frameCount = 0;
+        lastFpsUpdate = now;
+      }
+    }
+
+    function togglePause() {
+      isPaused = !isPaused;
+      document.getElementById('pause-btn').textContent = isPaused ? 'Resume' : 'Pause';
+      if (!isPaused) updateFrame();
+    }
+
+    function captureSnapshot() {
+      const link = document.createElement('a');
+      link.href = feedImg.src;
+      link.download = 'camera_snapshot_' + new Date().toISOString().replace(/[:.]/g, '-') + '.jpg';
+      link.click();
+    }
+
+    // Start refreshing frames
+    updateFrame();
+    refreshInterval = setInterval(updateFrame, 500); // 2 fps refresh rate
+  </script>
+</body>
+</html>
+  `);
+});
+
+// ============ GCS Upload API Routes ============
+
+// Get list of files available for upload
+app.get('/api/upload/files', (req, res) => {
+  try {
+    const files = gcsUploader.getAllUploadableFiles();
+    const totalSize = files.reduce((sum, f) => sum + f.size, 0);
+    res.json({
+      files,
+      count: files.length,
+      totalSize,
+      totalSizeMB: (totalSize / 1024 / 1024).toFixed(2)
+    });
+  } catch (error) {
+    console.error('Error getting uploadable files:', error);
+    res.status(500).json({ error: 'Failed to get files' });
+  }
+});
+
+// Start upload of all files
+app.post('/api/upload/start', async (req, res) => {
+  try {
+    const uploadId = gcsUploader.generateUploadId();
+    const bucket = req.body.bucket || gcsUploader.DEFAULT_BUCKET;
+
+    // Start upload in background
+    gcsUploader.uploadAllFiles(uploadId, bucket).then(result => {
+      console.log(`Upload ${uploadId} completed:`, result);
+    }).catch(err => {
+      console.error(`Upload ${uploadId} failed:`, err);
+    });
+
+    res.json({
+      success: true,
+      uploadId,
+      message: 'Upload started',
+      bucket
+    });
+  } catch (error) {
+    console.error('Error starting upload:', error);
+    res.status(500).json({ error: 'Failed to start upload' });
+  }
+});
+
+// Get upload progress
+app.get('/api/upload/progress/:uploadId', (req, res) => {
+  try {
+    const { uploadId } = req.params;
+    const progress = gcsUploader.getUploadProgress(uploadId);
+
+    if (!progress) {
+      return res.status(404).json({ error: 'Upload not found' });
+    }
+
+    res.json({
+      uploadId,
+      ...progress,
+      percentComplete: progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0
+    });
+  } catch (error) {
+    console.error('Error getting upload progress:', error);
+    res.status(500).json({ error: 'Failed to get progress' });
   }
 });
 
