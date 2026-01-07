@@ -1,7 +1,7 @@
 # Media files
 *.mov
 *.gif
-*.pdf
+*.pptx
 
 # Node modules
 node_modules/
