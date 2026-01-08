@@ -585,6 +585,7 @@
 
     let cameraOnline = false;
     let cameraPopup = null;
+    let activeCameraInfo = null;
 
     // Check camera status
     async function checkCameraStatus() {
@@ -594,20 +595,26 @@
         const statusEl = document.getElementById('camera-status');
         const statusTextEl = document.getElementById('camera-status-text');
 
-        if (data.available) {
+        if (data.available && data.activeCamera) {
           cameraOnline = true;
+          activeCameraInfo = data.activeCamera;
           statusEl.className = 'camera-status online';
-          statusTextEl.textContent = 'Camera: Online (Click to View)';
-          statusEl.title = 'Click to open live camera view';
+
+          // Show which camera is active
+          const cameraName = data.activeCamera.name;
+          statusTextEl.textContent = `${cameraName} (Click to View)`;
+          statusEl.title = `Active: ${cameraName}\nClick to open live camera view`;
         } else {
           cameraOnline = false;
+          activeCameraInfo = null;
           statusEl.className = 'camera-status offline';
           statusTextEl.textContent = 'Camera: Offline';
-          statusEl.title = 'Camera is not available';
+          statusEl.title = 'No camera available';
         }
       } catch (error) {
         console.error('Error checking camera status:', error);
         cameraOnline = false;
+        activeCameraInfo = null;
         const statusEl = document.getElementById('camera-status');
         const statusTextEl = document.getElementById('camera-status-text');
         statusEl.className = 'camera-status offline';
@@ -635,9 +642,11 @@
       const left = Math.floor((window.screen.width - width) / 2);
       const top = Math.floor((window.screen.height - height) / 2);
 
-      // Open camera's built-in web interface directly
+      // Use camera's web URL if available (reCamera), otherwise use snapshot viewer
+      const viewUrl = activeCameraInfo?.webUrl || '/camera-view';
+
       cameraPopup = window.open(
-        'http://192.168.42.1/',
+        viewUrl,
         'CameraLiveView',
         `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes,status=no,toolbar=no,menubar=no,location=no`
       );

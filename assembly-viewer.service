@@ -1,0 +1,26 @@
+# Systemd service file for Assembly Instructions Viewer
+# Copy this file to /etc/systemd/system/assembly-viewer.service
+# Then run:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable assembly-viewer
+#   sudo systemctl start assembly-viewer
+
+[Unit]
+Description=Assembly Instructions Viewer
+After=network.target
+
+[Service]
+Type=simple
+User=onex-automation
+WorkingDirectory=/home/onex-automation/projects/assembly/src
+ExecStart=/usr/bin/node backend/server.js
+Restart=on-failure
+RestartSec=10
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=assembly-viewer
+Environment=NODE_ENV=production
+Environment=PORT=3000
+
+[Install]
+WantedBy=multi-user.target

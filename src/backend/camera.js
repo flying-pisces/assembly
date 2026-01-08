@@ -1,20 +1,36 @@
 /**
  * Camera Module for Assembly Instructions Viewer
  *
- * Handles video recording from Seeed Studio reCamera via RTSP stream.
+ * Handles video recording with automatic fallback:
+ * - Primary: Seeed Studio reCamera (RTSP stream)
+ * - Fallback: Logitech USB webcam (V4L2)
+ *
  * Records per-slide clips (GIF) and full session videos (MP4).
  */
 
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const net = require('net');
 
-// Camera configuration
-const CAMERA_CONFIG = {
-  rtspUrl: 'rtsp://admin:admin@192.168.42.1:554/live',
-  ip: '192.168.42.1',
-  port: 554,
-  timeout: 5000
+// Camera configurations
+const CAMERAS = {
+  recamera: {
+    name: 'reCamera (RTSP)',
+    type: 'rtsp',
+    rtspUrl: 'rtsp://admin:admin@192.168.42.1:554/live',
+    ip: '192.168.42.1',
+    port: 554,
+    webUrl: 'http://192.168.42.1/',
+    timeout: 3000
+  },
+  logitech: {
+    name: 'Logitech USB',
+    type: 'v4l2',
+    device: '/dev/video0',
+    webUrl: null,  // No web interface
+    timeout: 2000
+  }
 };
 
 // Recording storage directory
@@ -22,6 +38,11 @@ const RECORDINGS_DIR = path.join(__dirname, '..', '..', 'recordings');
 
 // Active recording sessions
 const activeSessions = new Map();
+
+// Current active camera (cached)
+let activeCamera = null;
+let lastCameraCheck = 0;
+const CAMERA_CHECK_INTERVAL = 10000; // Re-check every 10 seconds
 
 /**
  * Ensure recordings directory exists
@@ -33,14 +54,12 @@ function ensureRecordingsDir() {
 }
 
 /**
- * Check if camera is reachable
+ * Check if reCamera (RTSP) is available
  */
-async function isCameraAvailable() {
+async function isReCameraAvailable() {
   return new Promise((resolve) => {
-    const net = require('net');
     const socket = new net.Socket();
-
-    socket.setTimeout(CAMERA_CONFIG.timeout);
+    socket.setTimeout(CAMERAS.recamera.timeout);
 
     socket.on('connect', () => {
       socket.destroy();
@@ -57,8 +76,144 @@ async function isCameraAvailable() {
       resolve(false);
     });
 
-    socket.connect(CAMERA_CONFIG.port, CAMERA_CONFIG.ip);
+    socket.connect(CAMERAS.recamera.port, CAMERAS.recamera.ip);
   });
+}
+
+/**
+ * Check if Logitech USB camera is available
+ */
+async function isLogitechAvailable() {
+  return new Promise((resolve) => {
+    try {
+      // Check if device exists
+      if (!fs.existsSync(CAMERAS.logitech.device)) {
+        resolve(false);
+        return;
+      }
+
+      // Try to query the device
+      const ffprobe = spawn('ffprobe', [
+        '-v', 'error',
+        '-f', 'v4l2',
+        '-i', CAMERAS.logitech.device,
+        '-show_entries', 'stream=width,height',
+        '-of', 'csv=p=0'
+      ], { timeout: CAMERAS.logitech.timeout });
+
+      let hasOutput = false;
+
+      ffprobe.stdout.on('data', () => {
+        hasOutput = true;
+      });
+
+      ffprobe.on('close', (code) => {
+        resolve(code === 0 || hasOutput);
+      });
+
+      ffprobe.on('error', () => {
+        resolve(false);
+      });
+
+      // Timeout fallback
+      setTimeout(() => {
+        ffprobe.kill();
+        resolve(fs.existsSync(CAMERAS.logitech.device));
+      }, CAMERAS.logitech.timeout);
+
+    } catch (error) {
+      resolve(false);
+    }
+  });
+}
+
+/**
+ * Get the best available camera (with caching)
+ * Priority: reCamera > Logitech
+ */
+async function getAvailableCamera(forceCheck = false) {
+  const now = Date.now();
+
+  // Use cached result if recent
+  if (!forceCheck && activeCamera && (now - lastCameraCheck) < CAMERA_CHECK_INTERVAL) {
+    return activeCamera;
+  }
+
+  // Check reCamera first (primary)
+  const reCameraAvailable = await isReCameraAvailable();
+  if (reCameraAvailable) {
+    activeCamera = { ...CAMERAS.recamera, id: 'recamera' };
+    lastCameraCheck = now;
+    console.log('Using primary camera: reCamera (RTSP)');
+    return activeCamera;
+  }
+
+  // Fallback to Logitech
+  const logitechAvailable = await isLogitechAvailable();
+  if (logitechAvailable) {
+    activeCamera = { ...CAMERAS.logitech, id: 'logitech' };
+    lastCameraCheck = now;
+    console.log('Fallback to: Logitech USB camera');
+    return activeCamera;
+  }
+
+  // No camera available
+  activeCamera = null;
+  lastCameraCheck = now;
+  console.warn('No camera available');
+  return null;
+}
+
+/**
+ * Check if any camera is available
+ */
+async function isCameraAvailable() {
+  const camera = await getAvailableCamera();
+  return camera !== null;
+}
+
+/**
+ * Get camera status with details
+ */
+async function getCameraStatus() {
+  const reCameraAvailable = await isReCameraAvailable();
+  const logitechAvailable = await isLogitechAvailable();
+
+  const activeCamera = reCameraAvailable ? CAMERAS.recamera :
+                       logitechAvailable ? CAMERAS.logitech : null;
+
+  return {
+    available: activeCamera !== null,
+    activeCamera: activeCamera ? {
+      name: activeCamera.name,
+      type: activeCamera.type,
+      webUrl: activeCamera.webUrl
+    } : null,
+    cameras: {
+      recamera: {
+        name: CAMERAS.recamera.name,
+        available: reCameraAvailable,
+        webUrl: CAMERAS.recamera.webUrl
+      },
+      logitech: {
+        name: CAMERAS.logitech.name,
+        available: logitechAvailable,
+        device: CAMERAS.logitech.device
+      }
+    }
+  };
+}
+
+/**
+ * Build ffmpeg input arguments based on camera type
+ */
+function buildFfmpegInput(camera) {
+  if (camera.type === 'rtsp') {
+    return ['-rtsp_transport', 'tcp', '-i', camera.rtspUrl];
+  } else if (camera.type === 'v4l2') {
+    return ['-f', 'v4l2', '-framerate', '30', '-video_size', '1280x720', '-i', camera.device];
+  }
+  throw new Error(`Unknown camera type: ${camera.type}`);
 }
 
 /**
@@ -68,10 +223,10 @@ async function isCameraAvailable() {
 async function startSessionRecording(sessionId, serialNumber, stationId) {
   ensureRecordingsDir();
 
-  const available = await isCameraAvailable();
-  if (!available) {
-    console.warn(`Camera not available for session ${sessionId}`);
-    return { success: false, error: 'Camera not available' };
+  const camera = await getAvailableCamera(true); // Force check
+  if (!camera) {
+    console.warn(`No camera available for session ${sessionId}`);
+    return { success: false, error: 'No camera available' };
   }
 
   // Create session directory
@@ -83,10 +238,10 @@ async function startSessionRecording(sessionId, serialNumber, stationId) {
   // Full session video filename
   const fullVideoPath = path.join(sessionDir, `${serialNumber}_full.mp4`);
 
-  // Start ffmpeg for full session recording
+  // Build ffmpeg arguments based on camera type
+  const inputArgs = buildFfmpegInput(camera);
   const ffmpegArgs = [
-    '-rtsp_transport', 'tcp',
-    '-i', CAMERA_CONFIG.rtspUrl,
+    ...inputArgs,
     '-c:v', 'libx264',
     '-preset', 'ultrafast',
     '-crf', '23',
@@ -117,18 +272,20 @@ async function startSessionRecording(sessionId, serialNumber, stationId) {
     sessionDir,
     fullVideoPath,
     ffmpegProcess,
+    camera: camera,  // Track which camera is used
     currentPage: 1,
     pageStartTime: Date.now(),
     pageClips: [],
     startTime: Date.now()
   });
 
-  console.log(`Started recording for session ${sessionId} (SN: ${serialNumber})`);
+  console.log(`Started recording for session ${sessionId} (SN: ${serialNumber}) using ${camera.name}`);
 
   return {
     success: true,
     sessionDir,
-    message: 'Recording started'
+    camera: camera.name,
+    message: `Recording started with ${camera.name}`
   };
 }
 
@@ -152,12 +309,11 @@ async function savePageClip(sessionId, pageNumber) {
   const gifFilename = `${session.serialNumber}_page${pageNumber}.gif`;
   const gifPath = path.join(session.sessionDir, gifFilename);
 
-  // Capture a short clip from RTSP and convert to GIF
-  // We'll capture the last few seconds as a representative clip
+  // Capture a short clip and convert to GIF
   const clipDuration = Math.min(duration, 10); // Max 10 seconds per clip
 
   try {
-    await captureGif(gifPath, clipDuration);
+    await captureGif(gifPath, clipDuration, session.camera);
 
     session.pageClips.push({
       page: pageNumber,
@@ -175,14 +331,23 @@ async function savePageClip(sessionId, pageNumber) {
 }
 
 /**
- * Capture a GIF from the RTSP stream
+ * Capture a GIF from the camera
  */
-function captureGif(outputPath, duration = 5) {
-  return new Promise((resolve, reject) => {
+function captureGif(outputPath, duration = 5, camera = null) {
+  return new Promise(async (resolve, reject) => {
+    // Use provided camera or get available one
+    if (!camera) {
+      camera = await getAvailableCamera();
+      if (!camera) {
+        reject(new Error('No camera available'));
+        return;
+      }
+    }
+
+    const inputArgs = buildFfmpegInput(camera);
     const ffmpegArgs = [
-      '-rtsp_transport', 'tcp',
+      ...inputArgs,
       '-t', String(Math.min(duration, 5)), // Limit to 5 seconds for GIF
-      '-i', CAMERA_CONFIG.rtspUrl,
       '-vf', 'fps=10,scale=480:-1:flags=lanczos',
       '-y',
       outputPath
@@ -206,6 +371,67 @@ function captureGif(outputPath, duration = 5) {
     ffmpeg.on('error', (err) => {
       reject(err);
     });
+  });
+}
+
+/**
+ * Capture a single snapshot from the camera
+ */
+async function captureSnapshot() {
+  const camera = await getAvailableCamera();
+  if (!camera) {
+    throw new Error('No camera available');
+  }
+
+  return new Promise((resolve, reject) => {
+    // Use temp file approach for more reliable capture
+    const tempFile = `/tmp/snapshot_${Date.now()}.jpg`;
+
+    const inputArgs = buildFfmpegInput(camera);
+    const ffmpegArgs = [
+      ...inputArgs,
+      '-frames:v', '1',
+      '-f', 'mjpeg',
+      '-q:v', '5',
+      '-y',
+      tempFile
+    ];
+
+    const ffmpeg = spawn('ffmpeg', ffmpegArgs, {
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+
+    let stderr = '';
+    ffmpeg.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    ffmpeg.on('close', (code) => {
+      if (code === 0 && fs.existsSync(tempFile)) {
+        try {
+          const data = fs.readFileSync(tempFile);
+          fs.unlinkSync(tempFile); // Clean up temp file
+          resolve({
+            data: data,
+            camera: camera.name
+          });
+        } catch (err) {
+          reject(new Error('Failed to read captured frame'));
+        }
+      } else {
+        reject(new Error(`Failed to capture frame: ${stderr.slice(-100)}`));
+      }
+    });
+
+    ffmpeg.on('error', (err) => {
+      reject(err);
+    });
+
+    // Timeout after 10 seconds
+    setTimeout(() => {
+      ffmpeg.kill('SIGKILL');
+      reject(new Error('Capture timeout'));
+    }, 10000);
   });
 }
 
@@ -252,6 +478,7 @@ async function stopSessionRecording(sessionId) {
     sessionDir: session.sessionDir,
     fullVideo: session.fullVideoPath,
     pageClips: session.pageClips,
+    camera: session.camera?.name,
     totalDuration
   };
 
@@ -332,6 +559,9 @@ function getAllRecordings() {
 
 module.exports = {
   isCameraAvailable,
+  getCameraStatus,
+  getAvailableCamera,
+  captureSnapshot,
   startSessionRecording,
   savePageClip,
   markPageEntry,
@@ -339,5 +569,6 @@ module.exports = {
   getSessionRecording,
   listRecordings,
   getAllRecordings,
-  RECORDINGS_DIR
+  RECORDINGS_DIR,
+  CAMERAS
 };

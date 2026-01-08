@@ -63,8 +63,8 @@ function scanForStations() {
 // Load stations from instruction folder
 const STATIONS = scanForStations();
 
-// Default station (first available or null)
-const DEFAULT_STATION = Object.keys(STATIONS)[0] || null;
+// Default station - prioritize Right Hip Motor Assembly (M-2020011)
+const DEFAULT_STATION = STATIONS['M-2020011'] ? 'M-2020011' : Object.keys(STATIONS)[0] || null;
 
 // API Routes
 
@@ -75,6 +75,12 @@ app.get('/api/stations', (req, res) => {
     station_name: s.station_name,
     document_name: s.document_name
   }));
+  // Sort stations: Right Hip (M-2020011) first, then by station_id descending
+  stationList.sort((a, b) => {
+    if (a.station_id === 'M-2020011') return -1;
+    if (b.station_id === 'M-2020011') return 1;
+    return b.station_id.localeCompare(a.station_id);
+  });
   res.json(stationList);
 });
 
@@ -332,14 +338,11 @@ app.get('/admin', (req, res) => {
 
 // ============ Camera API Routes ============
 
-// Check camera availability
+// Check camera availability (with fallback support)
 app.get('/api/camera/status', async (req, res) => {
   try {
-    const available = await camera.isCameraAvailable();
-    res.json({
-      available,
-      rtspUrl: available ? 'rtsp://192.168.42.1:554/live' : null
-    });
+    const status = await camera.getCameraStatus();
+    res.json(status);
   } catch (error) {
     console.error('Error checking camera status:', error);
     res.status(500).json({ error: 'Failed to check camera status' });
@@ -369,56 +372,17 @@ app.get('/api/recordings/:serialNumber/:stationId', (req, res) => {
   }
 });
 
-// Camera snapshot endpoint - captures a single frame from RTSP
+// Camera snapshot endpoint - captures a single frame from active camera
 app.get('/api/camera/snapshot', async (req, res) => {
   try {
-    const available = await camera.isCameraAvailable();
-    if (!available) {
-      return res.status(503).json({ error: 'Camera not available' });
-    }
-
-    const { spawn } = require('child_process');
-    const rtspUrl = 'rtsp://admin:admin@192.168.42.1:554/live';
-
-    // Capture a single frame using ffmpeg
-    const ffmpeg = spawn('ffmpeg', [
-      '-rtsp_transport', 'tcp',
-      '-i', rtspUrl,
-      '-frames:v', '1',
-      '-f', 'mjpeg',
-      '-q:v', '5',
-      'pipe:1'
-    ], { stdio: ['pipe', 'pipe', 'pipe'] });
-
-    let imageData = [];
-
-    ffmpeg.stdout.on('data', (chunk) => {
-      imageData.push(chunk);
-    });
-
-    ffmpeg.on('close', (code) => {
-      if (code === 0 && imageData.length > 0) {
-        res.set('Content-Type', 'image/jpeg');
-        res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
-        res.send(Buffer.concat(imageData));
-      } else {
-        res.status(500).json({ error: 'Failed to capture frame' });
-      }
-    });
-
-    ffmpeg.on('error', (err) => {
-      console.error('FFmpeg snapshot error:', err);
-      res.status(500).json({ error: 'Failed to capture frame' });
-    });
-
-    // Timeout after 5 seconds
-    setTimeout(() => {
-      ffmpeg.kill('SIGKILL');
-    }, 5000);
-
+    const result = await camera.captureSnapshot();
+    res.set('Content-Type', 'image/jpeg');
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.set('X-Camera-Source', result.camera);
+    res.send(result.data);
   } catch (error) {
     console.error('Error capturing snapshot:', error);
-    res.status(500).json({ error: 'Failed to capture snapshot' });
+    res.status(503).json({ error: 'Failed to capture snapshot', message: error.message });
   }
 });
 

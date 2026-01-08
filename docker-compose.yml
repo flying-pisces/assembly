@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  assembly:
+    build: .
+    container_name: assembly-viewer
+    ports:
+      - "3000:3000"
+    volumes:
+      # Persist recordings
+      - ./recordings:/app/recordings
+      # Persist session data
+      - ./src/data:/app/src/data
+      # Mount instruction PDFs
+      - ./instruction:/app/instruction:ro
+      # Mount GCS credentials (if using upload feature)
+      - ./upload:/app/upload:ro
+    devices:
+      # USB camera access (Logitech)
+      - /dev/video0:/dev/video0
+      - /dev/video1:/dev/video1
+    # Network mode for accessing reCamera on local network
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
